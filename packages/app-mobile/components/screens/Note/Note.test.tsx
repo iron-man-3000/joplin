@@ -21,7 +21,8 @@ import Folder from '@joplin/lib/models/Folder';
 import BaseItem from '@joplin/lib/models/BaseItem';
 import { ModelType } from '@joplin/lib/BaseModel';
 import ItemChange from '@joplin/lib/models/ItemChange';
-import { getDisplayParentId } from '@joplin/lib/services/trash';
+import { getDisplayParentId, getTrashFolderId } from '@joplin/lib/services/trash';
+import NavService from '@joplin/lib/services/NavService';
 import { itemIsReadOnlySync, ItemSlice } from '@joplin/lib/models/utils/readOnly';
 import { LayoutChangeEvent } from 'react-native';
 import shim from '@joplin/lib/shim';
@@ -969,5 +970,44 @@ describe('screens/Note/Note', () => {
 		expect(editor.getCursor().line).toBe(4);
 
 		unmount();
+	});
+
+	test.each([
+		['normal note', { is_conflict: 0, deleted_time: 0 }, 'parent'],
+		['conflict note', { is_conflict: 1, deleted_time: 0 }, 'conflict'],
+		['trashed note', { is_conflict: 0, deleted_time: 123456 }, 'trash'],
+		['trashed conflict note', { is_conflict: 1, deleted_time: 123456 }, 'trash'],
+	])('should reveal in the correct folder for %s', async (_type, noteProperties, expectedTarget) => {
+		const folder = await Folder.save({ title: 'Test folder' });
+		const note = await Note.save({
+			title: 'Note title',
+			body: 'Note body',
+			parent_id: folder.id,
+			...noteProperties,
+		});
+
+		await openExistingNote(note.id);
+		const { unmount } = render(<WrappedNoteScreen />);
+
+		const navSpy = jest.spyOn(NavService, 'go').mockImplementation(async () => true);
+
+		try {
+			await openNoteActionsMenu();
+			const revealButton = await screen.findByText('Reveal in notebook');
+			fireEvent.press(revealButton);
+
+			const expectedFolderId = expectedTarget === 'conflict'
+				? Folder.conflictFolderId()
+				: expectedTarget === 'trash'
+					? getTrashFolderId()
+					: folder.id;
+
+			await waitFor(() => {
+				expect(navSpy).toHaveBeenCalledWith('Notes', { folderId: expectedFolderId });
+			});
+		} finally {
+			navSpy.mockRestore();
+			unmount();
+		}
 	});
 });

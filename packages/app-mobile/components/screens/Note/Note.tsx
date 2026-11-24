@@ -57,7 +57,7 @@ import { RefObject, useContext } from 'react';
 import { getNoteCallbackUrl } from '@joplin/lib/callbackUrlUtils';
 import { AppState } from '../../../utils/types';
 import restoreItems from '@joplin/lib/services/trash/restoreItems';
-import { getDisplayParentTitle } from '@joplin/lib/services/trash';
+import { getDisplayParentId, getDisplayParentTitle } from '@joplin/lib/services/trash';
 import { PluginHtmlContents, PluginStates, utils as pluginUtils } from '@joplin/lib/services/plugins/reducer';
 import debounce from '../../../utils/debounce';
 import { blur, focus } from '@joplin/lib/utils/focusHandler';
@@ -1329,8 +1329,17 @@ class NoteScreenComponent extends BaseScreenComponent<ComponentProps, State> imp
 		this.props.dispatch({ type: 'SIDE_MENU_OPEN' });
 	}
 
-	private revealInNotebook_onPress() {
-		const folderId = this.state.folder?.id;
+	private async revealInNotebook_onPress() {
+		const note = this.state.note;
+		if (!note) return;
+
+		const parentFolder = (this.state.folder && ('deleted_time' in this.state.folder))
+			? this.state.folder
+			: (note.parent_id ? await Folder.load(note.parent_id) : null);
+		const folderId = note.is_conflict && !note.deleted_time
+			? Folder.conflictFolderId()
+			: getDisplayParentId(note, parentFolder);
+
 		if (folderId) {
 			void NavService.go('Notes', { folderId: folderId });
 		} else {
@@ -1658,7 +1667,7 @@ class NoteScreenComponent extends BaseScreenComponent<ComponentProps, State> imp
 			title: _('Reveal in notebook'),
 			icon: 'material folder-file-outline',
 			onPress: () => {
-				this.revealInNotebook_onPress();
+				void this.revealInNotebook_onPress();
 			},
 		});
 
